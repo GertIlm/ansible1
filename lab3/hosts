@@ -1,0 +1,9 @@
+# Ansible inventory - Lab 3 (Gert-Daniel Ilm)
+# grupp "webservers" = Apache2 veebiserverid (Debian 13), kuhu paigaldame PHP
+[webservers]
+gert-web1 ansible_host=192.168.35.164
+gert-web2 ansible_host=192.168.35.163
+
+[webservers:vars]
+ansible_user=root
+ansible_python_interpreter=/usr/bin/python3

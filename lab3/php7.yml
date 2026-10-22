@@ -1,0 +1,59 @@
+---
+# =====================================================================
+#  Fail:      /etc/ansible/playbooks/php7.yml
+#  Autor:     Gert-Daniel Ilm (VOCO, IT-süsteemide spetsialist)
+#  Labor:     Lab 3 - Veebiserveri laiendamine PHP toega (Ansible)
+#  Eesmärk:   paigaldada kliendiserveritesse (grupp "webservers")
+#             PHP + Apache2 PHP moodul + PHP MySQL laiendus ning
+#             luua testfailid phpinfo.php ja info.php (/var/www/html/)
+#  Kontroll:  ansible-playbook --check /etc/ansible/playbooks/php7.yml
+#  Käivitus:  ansible-playbook /etc/ansible/playbooks/php7.yml
+#  NB! php7.0 / php7.3 pakette Debian 13 repos ei ole, seega
+#      paigaldame üldise paketi "php" -> state=latest annab VIIMASE
+#      saadaoleva versiooni (Debian 13 puhul PHP 8.4).
+# =====================================================================
+
+- hosts: webservers          # sihtmasinad = inventory grupp [webservers]
+  become: yes                # ülesanded täidetakse root õigustes
+  tasks:
+
+    # --- 1. PHP põhipakett ------------------------------------------
+    # moodul apt: update_cache=yes -> enne paigaldust apt-get update
+    #             state=latest     -> paigaldab/uuendab viimase versiooni
+    - name: installeerime php
+      apt: name=php update_cache=yes state=latest
+
+    # --- 2. Apache2 PHP moodul --------------------------------------
+    # ilma selleta ei oska Apache2 .php faile tõlgendada
+    - name: installeerime libapache2-mod-php
+      apt: name=libapache2-mod-php update_cache=yes state=latest
+
+    # --- 3. PHP MySQL/MariaDB laiendus ------------------------------
+    # vajalik hiljem andmebaasiga töötavate veebirakenduste jaoks
+    - name: installeerime php-mysql
+      apt: name=php-mysql update_cache=yes state=latest
+
+    # --- 4. Iseseisev ülesanne 1: PHP testfailid --------------------
+    # moodul copy loob failid /var/www/html/ kataloogi; phpinfo()
+    # kuvab brauseris PHP versiooni ja seadistuse.
+    # loop -> sama task tehakse mõlema failinimega
+    - name: loome phpinfo.php ja info.php faili /var/www/html/
+      copy:
+        dest: "/var/www/html/{{ item }}"
+        content: |
+          <?php
+          phpinfo();
+          ?>
+        owner: www-data
+        group: www-data
+        mode: "0644"
+      loop:
+        - phpinfo.php
+        - info.php
+
+    # --- 5. Apache2 taaskäivitus ------------------------------------
+    # moodul service: restart, et uus PHP moodul hakkaks tööle
+    - name: Alglaadimine Apache2
+      service:
+        name: apache2
+        state: restarted

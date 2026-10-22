@@ -1,0 +1,58 @@
+---
+# =====================================================================
+#  Fail:       /etc/ansible/playbooks/uninst_php.yml
+#  Autor:      Gert-Daniel Ilm  |  Lab 3 - Iseseisev ülesanne 2
+#  Eesmärk:    eemaldada kliendiserveritest (grupp webservers) vale /
+#              mittevajalik PHP versioon koos kõigi seotud pakettidega
+#
+#  Probleemse PHP versiooni käsitsi eemaldamise käsud (Moodle juhend),
+#  mida see playbook automatiseerib:
+#    #apt-get purge php7.*
+#    #apt-get purge php7.X-common
+#    #apt remove php7.X*
+#  Debian 13 kasutab PHP 8.4 -> eemaldatav versioon on muutujas php_ver
+#
+#  Kontroll:   ansible-playbook --check /etc/ansible/playbooks/uninst_php.yml
+#  Käivitus:   ansible-playbook /etc/ansible/playbooks/uninst_php.yml
+#  Taastamine: ansible-playbook /etc/ansible/playbooks/php7.yml
+# =====================================================================
+
+- hosts: webservers          # sihtmasinad = inventory grupp [webservers]
+  become: yes                # root õigustes
+  vars:
+    php_ver: "8.4"           # eemaldatav PHP versioon (nt 7.0, 7.3, 8.4)
+  tasks:
+
+    # --- 1. sama mis "apt-get purge php8.4* php-common ..." -----------
+    # state=absent + purge=yes -> pakett eemaldatakse koos conf failidega
+    - name: eemaldame PHP {{ php_ver }} ja seotud paketid (purge)
+      apt:
+        name:
+          - "php{{ php_ver }}*"        # php8.4, php8.4-cli, -common, -mysql...
+          - "libapache2-mod-php*"      # Apache2 PHP moodul
+          - php                        # PHP metapakett
+          - php-common
+          - php-mysql
+        state: absent
+        purge: yes
+
+    # --- 2. sama mis "apt autoremove --purge" -------------------------
+    - name: eemaldame mittevajalikud sõltuvused (autoremove)
+      apt:
+        autoremove: yes
+        purge: yes
+
+    # --- 3. PHP-d enam pole -> kustutame PHP testfailid ---------------
+    - name: kustutame phpinfo.php ja info.php failid /var/www/html/
+      file:
+        path: "/var/www/html/{{ item }}"
+        state: absent
+      loop:
+        - phpinfo.php
+        - info.php
+
+    # --- 4. Apache2 taaskäivitus (PHP moodul pole enam laaditud) -------
+    - name: Alglaadimine Apache2
+      service:
+        name: apache2
+        state: restarted
