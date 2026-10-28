@@ -1,0 +1,79 @@
+---
+# =====================================================================
+#  Fail:      /root/playbooks/mysql-user.yml
+#  Labor:     Lab 4 - iseseisev ülesanne (hindeline)
+#  Autor:     Gert-Daniel Ilm (VOCO, IT-süsteemide spetsialist)
+#  Eesmärk:   seadistada MySQL serveris kasutajale root parool qwerty
+#             ja salvestada ühenduse andmed faili /root/.my.cnf
+#  Ansible-server: gert-ansible  192.168.37.136
+#  Kliendid:       gert-web1 192.168.37.135, gert-web2 192.168.37.137
+#  Käivitus:  ansible-playbook /root/playbooks/mysql-user.yml
+# =====================================================================
+- name: MySQL root kasutaja parool ja /root/.my.cnf
+  hosts: webservers
+  become: yes
+  vars:
+    mysql_root_password: qwerty
+    mysql_socket: /run/mysqld/mysqld.sock
+
+  tasks:
+
+    # 1. community.mysql moodulid vajavad kliendis Pythoni MySQL draiverit
+    - name: Paigaldame python3-pymysql
+      apt:
+        name: python3-pymysql
+        state: present
+
+    # 2. Pärast paigaldust kasutab root plugina auth_socket (sisselogimine
+    #    ilma paroolita). Vahetame plugina caching_sha2_password vastu ja
+    #    määrame parooli - edaspidi ilma paroolita sisse ei saa.
+    - name: Seadistame MySQL root kasutajale parooli
+      community.mysql.mysql_user:
+        name: root                              # kasutajanimi
+        host: localhost                         # host
+        plugin: caching_sha2_password           # paroolipõhine autentimine
+        plugin_auth_string: "{{ mysql_root_password }}"   # parool
+        salt: "GertIlmLab4MySQLsalt"            # 20 märki - idempotentsuseks
+        priv: "*.*:ALL,GRANT"                   # õigused: kõik + GRANT
+        append_privs: yes                       # olemasolevaid õigusi ei eemaldata
+        column_case_sensitive: yes              # MySQL 8: väljanimed tõstutundlikud
+        update_password: always                 # parooli haldamine
+        state: present
+        # Ühendus: esmalt proovitakse root-iga ilma paroolita (auth_socket),
+        # kui parool on juba määratud, siis login_user/login_password abil
+        check_implicit_admin: yes
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+        login_unix_socket: "{{ mysql_socket }}"
+
+    # 3. Salvestame ühenduse andmed faili /root/.my.cnf (ainult root loeb)
+    - name: Loome faili /root/.my.cnf
+      copy:
+        dest: /root/.my.cnf
+        owner: root
+        group: root
+        mode: '0600'
+        content: |
+          [client]
+          user=root
+          password={{ mysql_root_password }}
+
+    # 4. Kontroll: ilma paroolita sisselogimine peab EBAÕNNESTUMA
+    - name: Kontrollime, et ilma paroolita sisse ei saa
+      command: mysql --no-defaults -u root -e "SELECT 1"
+      register: ilma_paroolita
+      changed_when: false
+      failed_when: ilma_paroolita.rc == 0
+
+    # 5. Kontroll: parooliga (/root/.my.cnf) sisselogimine peab õnnestuma
+    - name: Kontrollime sisselogimist parooliga
+      command: mysql -N -e "SELECT CONCAT(CURRENT_USER(), ', MySQL ', VERSION());"
+      register: parooliga
+      changed_when: false
+
+    - name: Tulemus
+      debug:
+        msg:
+          - "Ilma paroolita: {{ ilma_paroolita.stderr }}"
+          - "Parooliga: {{ parooliga.stdout }}"
+      when: not ansible_check_mode            # --check režiimis jäetakse vahele

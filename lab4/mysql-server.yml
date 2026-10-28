@@ -1,0 +1,67 @@
+---
+# =====================================================================
+#  Fail:      /root/playbooks/mysql-server.yml
+#  Labor:     Lab 4 - Veebiserveri laiendamine MySQL andmebaasiga
+#  Autor:     Gert-Daniel Ilm (VOCO, IT-süsteemide spetsialist)
+#  Eesmärk:   lisada kliendiserveritesse (grupp webservers) MySQL-i
+#             ametlik APT hoidla ja paigaldada MySQL server
+#  Ansible-server: gert-ansible  192.168.37.136
+#  Kliendid:       gert-web1     192.168.37.135
+#                  gert-web2     192.168.37.137
+#  Kontroll:  ansible-playbook --check /root/playbooks/mysql-server.yml
+#  Käivitus:  ansible-playbook /root/playbooks/mysql-server.yml
+# =====================================================================
+- hosts: webservers        # inventory grupp failis /etc/ansible/hosts
+  become: yes              # ülesanded täidetakse root õigustes
+  tasks:
+
+    # 1. Kataloog, kuhu laeme alla vajalikud failid (moodul file)
+    - name: Loome kataloogi allalaadimiseks
+      file:
+        path: /root/allalaadimised
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    # 2. Debian 13 tavahoidlates mysql-server paketti ei ole, seega laeme
+    #    alla MySQL-i ametliku APT hoidla konfiguratsioonipaketi (.deb).
+    #    Viimane versioon: https://dev.mysql.com/downloads/repo/apt/
+    #    "creates" - kui fail on juba olemas, siis uuesti alla ei laadita.
+    - name: Laadime MySQL APT paketi wget abil
+      shell: |
+        wget -O /root/allalaadimised/mysql-apt-config_0.8.40-1_all.deb https://dev.mysql.com/get/mysql-apt-config_0.8.40-1_all.deb
+      args:
+        creates: /root/allalaadimised/mysql-apt-config_0.8.40-1_all.deb
+
+    # 3. gnupg on vajalik, et süsteem saaks töödelda hoidla GPG-võtmeid
+    #    (allkirjastatud pakettide ehtsuse kontroll)
+    - name: Paigalda gnupg
+      apt:
+        name: gnupg
+        state: present
+        update_cache: yes
+
+    # 4. Paigaldame allalaaditud .deb paketi (dpkg) - see lisab MySQL-i
+    #    ametliku hoidla APT allikate loetellu
+    - name: Installeerime mysql repositoorium
+      apt:
+        deb: /root/allalaadimised/mysql-apt-config_0.8.40-1_all.deb
+
+    # 5. Pärast uue hoidla lisamist uuendame pakettide nimekirja (apt update)
+    - name: Teeme apt-le update
+      apt:
+        update_cache: yes
+
+    # 6. Paigaldame MySQL serveri MySQL-i ametlikust hoidlast
+    - name: Paigaldame mysql-server
+      apt:
+        name: mysql-server
+        state: present
+
+    # 7. Veendume, et MySQL teenus töötab ja käivitub ka peale taaskäivitust
+    - name: Veendume, et mysql teenus töötab
+      service:
+        name: mysql
+        state: started
+        enabled: yes

@@ -1,0 +1,12 @@
+# Ansible inventory - Lab 4 (Gert-Daniel Ilm)
+# Asukoht: /etc/ansible/hosts
+# grupp "webservers" = kliendiserverid (Debian 13), kuhu paigaldame MySQL-i
+#   192.168.37.135 = gert-web1 (Proxmox VM 22301)
+#   192.168.37.137 = gert-web2 (Proxmox VM 22302)
+[webservers]
+192.168.37.135
+192.168.37.137
+
+[webservers:vars]
+ansible_user=root
+ansible_python_interpreter=/usr/bin/python3
