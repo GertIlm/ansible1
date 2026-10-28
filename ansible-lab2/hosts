@@ -1,0 +1,8 @@
+# Ansible inventory - Lab 2 veebiserverid (Debian 13 kliendid)
+[webservers]
+gert-lab2-web1 ansible_host=192.168.46.155
+gert-lab2-web2 ansible_host=192.168.46.154
+
+[webservers:vars]
+ansible_user=root
+ansible_python_interpreter=/usr/bin/python3

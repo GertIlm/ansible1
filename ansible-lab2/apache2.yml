@@ -1,0 +1,55 @@
+---
+# apache2.yml - Lab 2: Apache2 veebiserveri paigaldamine ja haldus Ansible'iga
+# Autor: Gert-Daniel Ilm | Kontroller: gert-lab2-ansible (192.168.46.156)
+# Sihtmasinad: grupp [webservers] failis /etc/ansible/hosts (ühendus root-kasutajana SSH-võtmega)
+- hosts: webservers            # millistele hostidele playbook rakendatakse
+  tasks:
+    # 1. Paigaldame Apache2 (apt moodul); update_cache=yes -> enne apt update
+    - name: install apache2
+      apt: name=apache2 update_cache=yes state=latest
+
+    # 2. Loome kasutajale "user" isikliku veebikataloogi /home/user/public_html (file moodul)
+    - name: Loome public_html kataloog user_ile
+      file:
+        path: /home/user/public_html
+        state: directory
+        owner: user
+        group: user
+        mode: '0755'
+
+    # 2b. Debian 13 loob kodukataloogi õigustega 0700 -> Apache (www-data) ei pääse public_html
+    #     kausta ja brauser näitab "403 Forbidden". Õigus 0711 lubab kataloogi läbida, mitte lugeda.
+    - name: Lubame Apache'l kodukataloogi /home/user läbida
+      file:
+        path: /home/user
+        mode: '0711'
+
+    # 3. Lubame Apache userdir mooduli -> kodulehed aadressil http://server/~kasutaja/ (apache2_module)
+    - name: Lubame userdir mod
+      apache2_module: name=userdir state=present
+
+    # 4. Taaskäivitame Apache2 teenuse, et userdir moodul rakenduks (service moodul)
+    - name: Apache2 serverile alglaadimine(restart)
+      service: name=apache2 state=restarted
+
+    # 5. Kopeerime Apache vaikelehe kasutaja public_html kataloogi testimiseks (copy moodul)
+    #    remote_src: yes -> lähtefail võetakse kliendiserverist endast, mitte kontrollerist
+    - name: Kopeerime index.html fail USER_ile kodus_public_html kataloogi
+      copy:
+        src: /var/www/html/index.html
+        dest: /home/user/public_html/index.html
+        remote_src: yes
+        owner: user
+        group: user
+        mode: '0644'
+
+    # 6. Teeme kasutaja kodulehe omapäraseks (lineinfile moodul): rida, mis sisaldab
+    #    "Apache2 Debian Default Page", asendatakse lausega "USERi lehekylg"
+    - name: user index.html redigeerimine
+      lineinfile: dest=/home/user/public_html/index.html regexp="Apache2 Debian Default Page" line="USERi lehekylg" state=present
+
+    # 7. Lõpus taaskäivitame Apache2 veelkord (service moodul)
+    - name: Alglaadimine Apache2
+      service:
+        name: apache2
+        state: restarted

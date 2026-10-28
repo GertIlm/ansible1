@@ -1,0 +1,38 @@
+---
+# index.yml - Lab 2 iseseisev ülesanne: unikaalne avaleht igale kliendiserverile
+# Asendab Apache2 vaikelehe /var/www/html/index.html failiga, mis sisaldab tervitusteksti
+# ning vastava kliendiserveri hostinime ja IP-aadressi (Ansible faktid) -> iga leht on erinev.
+- hosts: webservers
+  gather_facts: yes              # kogume faktid: ansible_hostname, ansible_default_ipv4
+  tasks:
+    # 1. Veendume, et Apache2 on paigaldatud (apt moodul)
+    - name: Apache2 on paigaldatud
+      apt: name=apache2 state=present
+
+    # 2. Loome unikaalse /var/www/html/index.html (copy moodul + content, Jinja2 muutujad)
+    - name: Unikaalne index.html hostinime ja IP-aadressiga
+      copy:
+        dest: /var/www/html/index.html
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          <!DOCTYPE html>
+          <html lang="et">
+          <head><meta charset="utf-8"><title>{{ ansible_hostname }}</title></head>
+          <body style="font-family: sans-serif; text-align: center; margin-top: 60px;">
+            <h1>Tere tulemast! See leht on paigaldatud Ansible'iga.</h1>
+            <p>Hostinimi: <b>{{ ansible_hostname }}</b></p>
+            <p>IP-aadress: <b>{{ ansible_default_ipv4.address }}</b></p>
+            <p>Lab 2 iseseisev ülesanne - Gert-Daniel Ilm</p>
+          </body>
+          </html>
+
+    # 3. Kontrollime, et veebiserver tagastab uue lehe (uri moodul: HTTP 200 + hostinimi lehel)
+    - name: Kontrollime avalehte
+      uri:
+        url: "http://{{ ansible_default_ipv4.address }}/"
+        return_content: yes
+      register: leht
+      failed_when: ansible_hostname not in leht.content
+      when: not ansible_check_mode   # --check ajal jätame vahele
