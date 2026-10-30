@@ -1,0 +1,12 @@
+# Ansible inventory - Lab 5 WordPress (Gert-Daniel Ilm)
+# Asukoht: /etc/ansible/hosts
+# grupp "webservers" = kliendiserverid (Debian 13), kuhu paigaldame WordPressi
+#   192.168.38.242 = gert-web1 (Proxmox VM 22313 gert-lab5-web1)
+#   192.168.38.241 = gert-web2 (Proxmox VM 22312 gert-lab5-web2)
+[webservers]
+192.168.38.242
+192.168.38.241
+
+[webservers:vars]
+ansible_user=root
+ansible_python_interpreter=/usr/bin/python3

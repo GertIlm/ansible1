@@ -1,0 +1,172 @@
+---
+# =====================================================================
+# Lab 5: WordPressi paigaldamise ja halduse automatiseerimine Ansible Playbook'iga
+# Autor:    Gert-Daniel Ilm (VOCO, IT-süsteemide spetsialist)
+# Fail:     /root/playbooks/wordpress.yml
+# Kontroll: ansible-playbook --check /root/playbooks/wordpress.yml
+# Käivitus: ansible-playbook /root/playbooks/wordpress.yml
+# Eeldus (Lab 4): kliendiserverites on MySQL server, root kasutajal on parool
+#                 ja ühenduse andmed on failis /root/.my.cnf
+# =====================================================================
+- name: WordPress_Andmebaasi seadistamine
+  hosts: webservers          # sihtmasinad = inventory grupp [webservers] (/etc/ansible/hosts)
+  become: yes                # kõik ülesanded täidetakse root õigustes
+  tasks:
+
+    # Eeldus (Lab 2 + Lab 3): veebiserver Apache2 ja PHP.
+    # Lab 5 masinad on kloonitud Lab 4 masinatest, kus oli ainult MySQL,
+    # seega paigaldame siin ka Apache2 ja PHP (php-mysql laiendust veel MITTE).
+    - name: Paigaldame Apache2 ja PHP (eeldus Lab 2 ja Lab 3)
+      apt:
+        name:
+          - apache2
+          - php
+          - php-cli
+          - libapache2-mod-php
+        state: present
+        update_cache: yes
+
+    # PyMySQL on Pythoni moodul, mida vajavad Ansible'i mysql_db ja mysql_user moodulid
+    - name: Paigaldame python3-pymysql
+      apt:
+        name: python3-pymysql
+        state: present
+        update_cache: yes
+
+    # WordPressi andmebaas (mysql_db loeb root parooli failist /root/.my.cnf)
+    - name: Loome andmebaas nimega-wpdatabase
+      mysql_db:
+        name: wpdatabase
+        state: present
+
+    # Eraldi kasutaja, kellel on õigused ainult wpdatabase andmebaasile
+    - name: Loome kasutaja nimega-wpuser parool-qwerty
+      mysql_user:
+        name: wpuser
+        # MySQL 8.4 LTS-s on vana mysql_native_password plugin vaikimisi välja lülitatud
+        # (viga: Plugin 'mysql_native_password' is not loaded), seega anname parooli
+        # caching_sha2_password pluginaga (MySQL 8.4 vaikimisi autentimisviis)
+        plugin: caching_sha2_password
+        plugin_auth_string: qwerty
+        update_password: on_create   # parool määratakse ainult kasutaja loomisel (idempotentne)
+        priv: "wpdatabase.*:ALL,GRANT"
+        state: present
+        check_implicit_admin: yes
+        column_case_sensitive: true   # community.mysql hoiatuse vältimiseks
+
+    # WordPressi lähtekood: valmis arhiiv (tar.gz) ametlikult kodulehelt
+    - name: Laeme alla WordPressi
+      get_url:
+        url: https://wordpress.org/latest.tar.gz
+        dest: /tmp/wordpress.tar.gz
+
+    # Pakime arhiivi lahti veebiserveri juurkataloogi -> /var/www/html/wordpress
+    # remote_src: yes = arhiiv asub juba kliendiserveris (mitte Ansible-serveris)
+    - name: Pakime WordPressi lahti
+      unarchive:
+        src: /tmp/wordpress.tar.gz
+        dest: /var/www/html/
+        remote_src: yes
+
+    # WordPressi konfiguratsioon: kopeerime näidisfaili wp-config-sample.php -> wp-config.php
+    # force: no = olemasolevat wp-config.php faili korduval käivitamisel üle ei kirjutata
+    - name: Kopeerime wp-config-sample.php kui wp-config.php vajaliku kohta
+      copy:
+        src: /var/www/html/wordpress/wp-config-sample.php
+        dest: /var/www/html/wordpress/wp-config.php
+        remote_src: yes
+        force: no
+
+    # lineinfile otsib failist võtmesõna (regexp) ja asendab kogu rea meie väärtusega
+    - name: Määrame andmebaasi nime
+      lineinfile:
+        path: /var/www/html/wordpress/wp-config.php
+        regexp: "database_name_here"
+        line: "define('DB_NAME', 'wpdatabase');"
+
+    - name: Määrame andmebaasi kasutajanime
+      lineinfile:
+        path: /var/www/html/wordpress/wp-config.php
+        regexp: "username_here"
+        line: "define('DB_USER', 'wpuser');"
+
+    - name: Määrame andmebaasi kasutaja parooli
+      lineinfile:
+        path: /var/www/html/wordpress/wp-config.php
+        regexp: "password_here"
+        line: "define('DB_PASSWORD', 'qwerty');"
+
+    # ISESEISEV ÜLESANNE 1:
+    # Viga brauseris: "Your PHP installation appears to be missing the MySQL extension".
+    # PHP-l puudub mysqli laiendus, mida WordPress vajab andmebaasiga ühendumiseks.
+    # Juhendis on php7.4-mysql (Debian 11), Debian 13-s on PHP 8.4 -> paigaldame
+    # metapaketi php-mysql, mis paigaldab alati süsteemi PHP versioonile sobiva
+    # mooduli (siin php8.4-mysql).
+    - name: Paigaldame PHP MySQL laienduse (php-mysql / mysqli)
+      apt:
+        name: php-mysql
+        state: present
+        update_cache: yes
+
+    # Lõpuks taaskäivitame Apache2, et muudatused (PHP moodulid jne) rakenduksid
+    - name: Taaskäivita Apache teenus
+      service:
+        name: apache2
+        state: restarted
+
+# =====================================================================
+# ISESEISEV ÜLESANNE 2: WordPressi installatsiooni lõpuleviimine (wp-cli)
+# Brauseris installiviisardit ("Continue") EI kasutata - paigalduse viib
+# lõpuni playbook käsurea tööriistaga wp-cli.
+# =====================================================================
+- name: WordPressi installatsiooni lõpuleviimine kliendiserverites
+  hosts: webservers
+  become: yes
+  vars:
+    wp_kataloog: /var/www/html/wordpress
+    wp_url: "http://{{ ansible_default_ipv4.address }}/wordpress"   # kliendiserveri enda IP
+    wp_pealkiri: "admin wordpressi sait"
+    wp_admin: admin
+    wp_admin_parool: qwerty
+    wp_admin_email: admin@example.com
+  tasks:
+
+    # wp-cli on WordPressi käsurea haldustööriist (üks PHP arhiivifail wp-cli.phar)
+    # Salvestame selle käsuna /usr/local/bin/wp ja teeme käivitatavaks (0755)
+    - name: Laeme alla ja paigaldame wp-cli tööriista
+      get_url:
+        url: https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+        dest: /usr/local/bin/wp
+        mode: '0755'
+
+    # Kontrollime, kas WordPress on juba paigaldatud (rc 0 = jah, rc 1 = ei).
+    # See ülesanne ei muuda midagi, seega changed_when: false
+    - name: Kontrollime, kas WordPress on juba paigaldatud
+      command: wp core is-installed --allow-root
+      args:
+        chdir: "{{ wp_kataloog }}"
+      register: wp_paigaldatud
+      failed_when: false
+      changed_when: false
+
+    # wp core install loob andmebaasi tabelid, saidi pealkirja, aadressi ja admin kasutaja.
+    # --allow-root on vajalik, sest Ansible käivitab käsu root kasutaja alt.
+    # chdir: käsk käivitatakse WordPressi kataloogis (seal on wp-config.php)
+    - name: Paigaldame WordPressi (wp core install)
+      command: >
+        wp core install
+        --url={{ wp_url }}
+        --title="{{ wp_pealkiri }}"
+        --admin_user={{ wp_admin }}
+        --admin_password={{ wp_admin_parool }}
+        --admin_email={{ wp_admin_email }}
+        --skip-email
+        --allow-root
+      args:
+        chdir: "{{ wp_kataloog }}"
+      when: wp_paigaldatud.rc != 0
+
+    # Näitame logis, millisel aadressil sait ja sisselogimine asuvad
+    - name: WordPressi aadress
+      debug:
+        msg: "Sait: {{ wp_url }}  |  Admin: {{ wp_url }}/wp-login.php (kasutaja {{ wp_admin }})"
