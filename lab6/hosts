@@ -1,0 +1,12 @@
+# Ansible inventory - Lab 6 phpMyAdmin (Gert-Daniel Ilm)
+# Asukoht: /etc/ansible/hosts
+# grupp "webservers" = kliendiserverid (Debian 13), kuhu paigaldame phpMyAdmini
+#   192.168.40.212 = gert-web1 (Proxmox VM 22341 gert-lab6-web1)
+#   192.168.40.214 = gert-web2 (Proxmox VM 22342 gert-lab6-web2)
+[webservers]
+192.168.40.212
+192.168.40.214
+
+[webservers:vars]
+ansible_user=root
+ansible_python_interpreter=/usr/bin/python3

@@ -1,0 +1,88 @@
+---
+# =====================================================================
+# Lab 6: phpMyAdmini paigaldamine ja seadistamine Ansible Playbook'i abil
+# Autor:    Gert-Daniel Ilm (ITS24)
+# Asukoht:  /root/playbooks/phpmyadmin.yml
+# Kontroll: ansible-playbook --check /root/playbooks/phpmyadmin.yml
+# Käivitus: ansible-playbook /root/playbooks/phpmyadmin.yml
+# Eeldus:   kliendiserverites on Apache2, PHP ja MySQL (Lab 2-5) ning
+#           inventaris /etc/ansible/hosts on grupp "webservers"
+# =====================================================================
+- name: Paigaldame ja seadistame phpMyAdmini Debian serverites
+  hosts: webservers       # inventari grupp: gert-web1 ja gert-web2
+  become: yes             # ülesanded käivitatakse root õigustes
+
+  tasks:
+    # 1) apt update - värskendame pakettide nimekirja enne paigaldust
+    - name: Uuendame pakettide nimekirja
+      apt:
+        update_cache: yes
+
+    # 2) Vastame paigalduse küsimustele ette (debconf), et apt ei jääks
+    #    interaktiivselt küsima:
+    #    - veebiserveriks valime apache2 (pakett loob Apache conf faili)
+    #    - dbconfig-common jääb välja (phpMyAdmin ei vaja oma andmebaasi)
+    - name: Eelseadistame phpMyAdmini paigalduse vastused (debconf)
+      debconf:
+        name: phpmyadmin
+        question: "{{ item.question }}"
+        value: "{{ item.value }}"
+        vtype: "{{ item.vtype }}"
+      loop:
+        - { question: "phpmyadmin/reconfigure-webserver", value: "apache2", vtype: "multiselect" }
+        - { question: "phpmyadmin/dbconfig-install", value: "false", vtype: "boolean" }
+
+    # 3) apt install phpmyadmin - failid paigaldatakse kausta /usr/share/phpmyadmin
+    - name: Paigaldame phpMyAdmin paketi
+      apt:
+        name: phpmyadmin
+        state: present
+
+    # 4) Apache teenindab vaikimisi faile kaustast /var/www/html.
+    #    Loome sinna sümboolse lingi (nagu "ln -s"), mis viitab phpMyAdmini
+    #    päris kaustale -> leht avaneb aadressil http://serveri_ip/phpmyadmin
+    - name: Tagame, et phpMyAdmini sümboolne link on Apache'i kataloogis
+      file:
+        src: /usr/share/phpmyadmin        # päris kaust, kus asuvad phpMyAdmini failid
+        dest: /var/www/html/phpmyadmin    # uus lühiviide veebiserveri juurkataloogis
+        state: link                       # sümboolne link, faile ei kopeerita
+
+    # 5) Seome phpMyAdmini konfiguratsioonifaili Apache'ga:
+    #    /etc/phpmyadmin/apache.conf -> /etc/apache2/conf-available/phpmyadmin.conf
+    - name: Seome phpMyAdmini Apache konfiguratsiooni conf-available kausta
+      file:
+        src: /etc/phpmyadmin/apache.conf
+        dest: /etc/apache2/conf-available/phpmyadmin.conf
+        state: link
+
+    # 6) a2enconf lubab konfiguratsiooni (link kausta conf-enabled).
+    #    "creates" teeb ülesande idempotentseks - kui link on olemas, ei käivitata uuesti
+    - name: Lubame phpMyAdmini Apache konfiguratsiooni (a2enconf)
+      command: a2enconf phpmyadmin
+      args:
+        creates: /etc/apache2/conf-enabled/phpmyadmin.conf
+
+    # 7) Taaskäivitame Apache, et uus konfiguratsioon rakenduks
+    - name: Taaskäivitame Apache teenuse
+      service:
+        name: apache2
+        state: restarted
+
+    # 8) Kontrollime HTTP päringuga, et phpMyAdmin päriselt vastab:
+    #    uri         - saadab kliendiserveris päringu aadressile http://localhost/phpmyadmin/
+    #    register    - salvestab vastuse muutujasse phpmyadmin_status
+    #    failed_when - ebaõnnestub, kui staatus pole 200 või lehel puudub sõna "phpMyAdmin"
+    - name: Veendume, et Apache töötab ja phpMyAdmin on ligipääsetav
+      uri:
+        url: http://localhost/phpmyadmin/
+        return_content: yes
+      register: phpmyadmin_status
+      failed_when: >-
+        phpmyadmin_status.status != 200 or
+        'phpMyAdmin' not in phpmyadmin_status.content
+      check_mode: false   # GET päring ei muuda midagi, seega lubame ka --check ajal
+
+    # 9) Näitame väljundis aadressi, kust phpMyAdmini brauseris avada
+    - name: phpMyAdmini aadress
+      debug:
+        msg: "phpMyAdmin töötab: http://{{ ansible_default_ipv4.address }}/phpmyadmin (HTTP {{ phpmyadmin_status.status }})"

@@ -1,0 +1,120 @@
+---
+# =====================================================================
+# Lab 6 - Iseseisev ülesanne 1: phpMyAdmini konfiguratsioonifail
+#         config.inc.php Jinja2 malli ja template mooduli abil
+# Autor:    Gert-Daniel Ilm (ITS24)
+# Asukoht:  /root/playbooks/phpmyadmin_config.yml
+# Mallid:   /root/playbooks/templates/config.inc.php.j2
+#           /root/playbooks/templates/config.header.inc.php.j2
+# Kontroll: ansible-playbook --check /root/playbooks/phpmyadmin_config.yml
+# Käivitus: ansible-playbook /root/playbooks/phpmyadmin_config.yml
+# Eeldus:   phpmyadmin.yml on käivitatud (phpMyAdmin on paigaldatud)
+# =====================================================================
+- name: Seadistame phpMyAdmini konfiguratsioonifaili config.inc.php
+  hosts: webservers
+  become: yes
+
+  vars:
+    # Debiani phpMyAdmin loeb seadeid failist /etc/phpmyadmin/config.inc.php
+    # (vt /usr/share/phpmyadmin/libraries/vendor_config.php -> configFile).
+    pma_config_file: /etc/phpmyadmin/config.inc.php
+    # Ülesandes nimetatud "tavaline" asukoht - teeme sinna lingi samale failile
+    pma_config_link: /usr/share/phpmyadmin/config.inc.php
+    # blowfish_secret - 32 märgiline juhuslik võti sessiooniandmete (küpsiste)
+    # krüpteerimiseks. password lookup genereerib selle esimesel käivitusel ja
+    # salvestab juhtserverisse, järgmistel kordadel loetakse sama väärtus
+    # (seega playbook on idempotentne ja sessioonid ei katke).
+    pma_blowfish_secret: "{{ lookup('password', '/root/playbooks/secrets/pma_blowfish_' + inventory_hostname + ' chars=ascii_letters,digits length=32') }}"
+    # MySQL serveri andmed ($cfg['Servers'])
+    pma_mysql_host: localhost        # MySQL töötab samas kliendiserveris
+    pma_mysql_port: 3306
+    pma_auth_type: cookie            # sisselogimisvorm (MySQL kasutaja + parool)
+    pma_allow_no_password: false     # tühja parooliga sisselogimine keelatud
+    pma_allow_root: true             # MySQL root võib sisse logida
+    pma_default_lang: et             # liidese vaikekeel eesti keel
+
+  tasks:
+    # 1) Kontrollime, kas konfiguratsioonifail on juba olemas
+    - name: Kontrollime, kas config.inc.php on olemas
+      stat:
+        path: "{{ pma_config_file }}"
+      register: pma_config
+
+    - name: Näitame config.inc.php olekut enne seadistamist
+      debug:
+        msg: "{{ pma_config_file }} olemas: {{ pma_config.stat.exists }}"
+
+    # 2) Kui faili pole, loome selle näidisfaili config.sample.inc.php põhjal
+    #    (remote_src: yes - kopeerime kliendiserveri sees, force: no - ei kirjuta üle)
+    - name: Loome config.inc.php näidisfailist, kui see puudub
+      copy:
+        src: /usr/share/phpmyadmin/config.sample.inc.php
+        dest: "{{ pma_config_file }}"
+        remote_src: yes
+        force: no
+      when: not pma_config.stat.exists
+
+    # 3) Kirjutame konfiguratsiooni Jinja2 mallist (template moodul).
+    #    Mall asendab muutujad ({{ }}) iga serveri väärtustega.
+    #    backup: yes - eelmine fail jäetakse varukoopiaks
+    - name: Paigaldame config.inc.php Jinja2 mallist
+      template:
+        src: templates/config.inc.php.j2
+        dest: "{{ pma_config_file }}"
+        owner: root
+        group: root
+        mode: '0644'
+        backup: yes
+
+    # 4) Sümboolne link /usr/share/phpmyadmin/config.inc.php -> /etc/phpmyadmin/config.inc.php
+    #    nii on sama fail nähtav ka ülesandes toodud asukohas
+    - name: Lingime config.inc.php ka kausta /usr/share/phpmyadmin
+      file:
+        src: "{{ pma_config_file }}"
+        dest: "{{ pma_config_link }}"
+        state: link
+
+    # 5) Kohandatud päis (config.header.inc.php) - sisselogimislehel on näha,
+    #    millises kliendiserveris (hostname + IP) phpMyAdmin töötab
+    - name: Paigaldame phpMyAdmini päise serveri nime ja IP-ga
+      template:
+        src: templates/config.header.inc.php.j2
+        dest: /usr/share/phpmyadmin/config.header.inc.php
+        owner: root
+        group: root
+        mode: '0644'
+
+    # 6) TempDir kaust peab olema veebiserveri kasutajale (www-data) kirjutatav
+    - name: Tagame, et phpMyAdmini ajutiste failide kaust on olemas
+      file:
+        path: /var/lib/phpmyadmin/tmp
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: '0755'
+
+    # 7) Kontrollime PHP süntaksit - vigane config.inc.php rikuks phpMyAdmini
+    - name: Kontrollime config.inc.php PHP süntaksit (php -l)
+      command: php -l {{ pma_config_file }}
+      register: php_lint
+      changed_when: false   # ainult kontroll, midagi ei muudeta
+      check_mode: false
+
+    # 8) Veendume, et phpMyAdmin avab sisselogimisvormi (väli pma_username)
+    - name: Veendume, et phpMyAdmini sisselogimisleht avaneb
+      uri:
+        url: http://localhost/phpmyadmin/
+        return_content: yes
+      register: pma_login
+      failed_when: >-
+        pma_login.status != 200 or
+        'pma_username' not in pma_login.content
+      check_mode: false
+
+    # 9) Kokkuvõte väljundis
+    - name: Tulemus
+      debug:
+        msg:
+          - "{{ php_lint.stdout }}"
+          - "config.inc.php: {{ pma_config_file }} (link: {{ pma_config_link }})"
+          - "Sisselogimine: http://{{ ansible_default_ipv4.address }}/phpmyadmin (HTTP {{ pma_login.status }})"
