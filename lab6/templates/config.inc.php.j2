@@ -1,0 +1,63 @@
+<?php
+/**
+ * phpMyAdmini konfiguratsioonifail - {{ ansible_managed }}
+ * Ansible Lab 6 (Gert-Daniel Ilm), mall: templates/config.inc.php.j2
+ * Põhineb failil config.sample.inc.php
+ * Server: {{ ansible_hostname }} ({{ ansible_default_ipv4.address }})
+ *
+ * Dokumentatsioon: https://docs.phpmyadmin.net/en/latest/config.html
+ */
+
+declare(strict_types=1);
+
+/**
+ * blowfish_secret - 32 märgiline võti, millega krüpteeritakse
+ * cookie autentimise sessiooniandmed (genereeritud Ansible'iga)
+ */
+$cfg['blowfish_secret'] = '{{ pma_blowfish_secret }}';
+
+/**
+ * Serverite konfiguratsioon
+ */
+$i = 0;
+
+/**
+ * Esimene server - kohalik MySQL server
+ */
+$i++;
+$cfg['Servers'][$i]['verbose'] = '{{ ansible_hostname }} MySQL';
+/* Autentimise tüüp: cookie = sisselogimisvorm */
+$cfg['Servers'][$i]['auth_type'] = '{{ pma_auth_type }}';
+/* MySQL serveri aadress ja port */
+$cfg['Servers'][$i]['host'] = '{{ pma_mysql_host }}';
+$cfg['Servers'][$i]['port'] = '{{ pma_mysql_port }}';
+$cfg['Servers'][$i]['compress'] = false;
+/* Juurdepääsuseaded */
+$cfg['Servers'][$i]['AllowNoPassword'] = {{ 'true' if pma_allow_no_password else 'false' }};
+$cfg['Servers'][$i]['AllowRoot'] = {{ 'true' if pma_allow_root else 'false' }};
+
+/**
+ * Vaikimisi server (1 = ülal defineeritud kohalik MySQL)
+ */
+$cfg['ServerDefault'] = 1;
+
+/**
+ * Kataloogid failide üles- ja allalaadimiseks ning ajutiste failide jaoks
+ */
+$cfg['UploadDir'] = '';
+$cfg['SaveDir'] = '';
+$cfg['TempDir'] = '/var/lib/phpmyadmin/tmp';
+
+/**
+ * Muud seaded
+ */
+$cfg['DefaultLang'] = '{{ pma_default_lang }}';
+$cfg['ShowPhpInfo'] = false;
+$cfg['LoginCookieValidity'] = 1440;
+
+/**
+ * Debiani lisaseaded (kui neid on)
+ */
+foreach (glob('/etc/phpmyadmin/conf.d/*.php') as $filename) {
+    include $filename;
+}

@@ -1,0 +1,10 @@
+<?php
+/**
+ * phpMyAdmini kohandatud päis - {{ ansible_managed }}
+ * Ansible Lab 6 (Gert-Daniel Ilm), mall: templates/config.header.inc.php.j2
+ * Näitab lehe ülaosas, millises kliendiserveris phpMyAdmin töötab.
+ */
+?>
+<div style="background:#235a81;color:#fff;padding:8px 12px;font:bold 15px sans-serif;text-align:center;">
+  phpMyAdmin @ {{ ansible_hostname }} ({{ ansible_default_ipv4.address }}) - Ansible Lab 6
+</div>
